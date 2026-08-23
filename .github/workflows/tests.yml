@@ -1,0 +1,15 @@
+name: brew test-bot
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+      - name: brew style
+        run: brew style "$GITHUB_REPOSITORY" || true
+      - name: brew audit (new/changed)
+        run: brew audit --tap "${GITHUB_REPOSITORY##*/homebrew-}" --new || true
