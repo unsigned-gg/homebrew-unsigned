@@ -37,6 +37,12 @@ jobs:
           brew tap unsigned-gg/unsigned "$GITHUB_WORKSPACE"
           echo "formulae: $(find Formula -name '*.rb' | wc -l)"
       - name: Install and test every formula (developer mode off)
+        # Private tools' formulae (lib/github_private_release_download_strategy.rb) read this read-only
+        # token, scoped to Contents read on their cerebral-work repos only. It is set on THIS step alone.
+        # pull_request runs from forks get no secrets, so a fork PR cannot read it. Without it, a
+        # private formula fails loudly, naming the variable.
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_GITHUB_API_TOKEN }}
         run: |
           set -euo pipefail
           shopt -s nullglob
