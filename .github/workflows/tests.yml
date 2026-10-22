@@ -1,8 +1,9 @@
 # Tap CI: every formula must install, pass its test, and pass style and a strict audit.
-# Runs on the estate's self-hosted runners (GitHub-hosted runners are not used, CER-2908) inside the
-# Homebrew-on-Linux image pinned by digest. It replaces the scaffold job, which pointed at an
-# unresolvable action ref (Homebrew/actions@master), ran on macOS, and ended every step in `|| true`,
-# so it could never fail.
+# Runs on the estate's self-hosted runners (GitHub-hosted runners are not used, CER-2908). Those runners
+# have no Docker daemon (container jobs fail: no /var/run/docker.sock), so Homebrew runs directly on the
+# ephemeral runner from a git clone of Homebrew/brew at a pinned tag, never from a piped install script.
+# It replaces the scaffold job, which pointed at an unresolvable action ref (Homebrew/actions@master),
+# ran on macOS, and ended every step in `|| true`, so it could never fail.
 #
 # Install and test run BEFORE style and audit: those two switch Homebrew into developer mode, under
 # which a checksum mismatch only warns (pkg-lead@vespertin, tap PR #1). Users run with developer mode
@@ -13,24 +14,28 @@ on:
   pull_request:
 permissions:
   contents: read
+env:
+  BREW_TAG: "4.6.20"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_ENV_HINTS: "1"
 jobs:
   test:
     runs-on: {group: ent-default, labels: [self-hosted]}
-    container:
-      # homebrew/brew 4.6.20 (multi-arch index digest)
-      image: homebrew/brew@sha256:b0072bfdebf5934ae24b93b44a1928a88057399b3283ffa0177bb86084fdedfd
-      options: --user linuxbrew
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-      HOMEBREW_NO_INSTALL_CLEANUP: "1"
-      HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Homebrew from a pinned clone
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch "$BREW_TAG" https://github.com/Homebrew/brew "$RUNNER_TEMP/brew"
+          "$RUNNER_TEMP/brew/bin/brew" --version
+          echo "$RUNNER_TEMP/brew/bin" >> "$GITHUB_PATH"
       - name: Tap this checkout
         run: |
           set -euo pipefail
           brew tap unsigned-gg/unsigned "$GITHUB_WORKSPACE"
-          echo "formulae: $(ls Formula/*.rb 2>/dev/null | wc -l)"
+          echo "formulae: $(find Formula -name '*.rb' | wc -l)"
       - name: Install and test every formula (developer mode off)
         run: |
           set -euo pipefail
