@@ -1,7 +1,6 @@
 class Herdr < Formula
   desc "Runtime your coding agents live on (unsigned-gg build)"
   homepage "https://github.com/unsigned-gg/herdr"
-  version "0.9.5.2"
   license "Apache-2.0"
 
   depends_on :linux
