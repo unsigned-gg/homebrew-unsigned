@@ -1,0 +1,31 @@
+name: Auto-merge logic test
+
+# Tests .github/auto-merge/decide.sh with a fake gh. Not a required check.
+on:
+  pull_request:
+    paths:
+      - '.github/auto-merge/**'
+      - '.github/auto-merge-paths.txt'
+      - '.github/CODEOWNERS'
+
+permissions:
+  contents: read
+
+jobs:
+  test-decide:
+    name: Auto-merge logic test
+    runs-on: {group: ent-default, labels: [self-hosted]}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: unsigned-gg/actions/vendor/actions-checkout@fd981ada61381db6416ba67b2bbd2d779823d0b5 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Syntax check
+        run: |
+          bash -n .github/auto-merge/decide.sh
+          bash -n .github/auto-merge/test-decide.sh
+
+      - name: Run decide.sh tests
+        run: bash .github/auto-merge/test-decide.sh

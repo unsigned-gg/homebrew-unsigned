@@ -1,0 +1,111 @@
+# Auto-merge on green by default, as unsigned-paas (Christian 2026-10-27). Enables `--auto`; GitHub
+# performs the merge once every REQUIRED check passes on the exact head. This workflow never decides
+# that a PR is green. The rules are in .github/auto-merge/decide.sh (tested by test-decide.sh) and
+# .github/auto-merge-paths.txt; the header of decide.sh lists what holds a PR.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ SECURITY INVARIANT — DO NOT ADD A STEP THAT EXECUTES PR CONTENT.         │
+# │                                                                          │
+# │ `pull_request_target` runs with secrets in the base-repo context and the │
+# │ job holds an App token with merge rights. It is safe only because       │
+# │ nothing here runs code from the PR: the checkout is the BASE ref and the │
+# │ PR is read through the API. Titles, refs and file names are untrusted:   │
+# │ they enter the shell only through env vars, never through ${{ }} in a    │
+# │ script.                                                                  │
+# └─────────────────────────────────────────────────────────────────────────┘
+name: Auto-merge
+
+on:
+  pull_request_target:
+    # `edited` so a HOLD title disarms; review_request* so an explicit review request holds.
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled, converted_to_draft, edited, review_requested, review_request_removed]
+
+permissions: {}
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  decide:
+    name: Auto-merge
+    # Runs for every PR, drafts and other bases included, so converting to draft or retargeting
+    # away from main disarms an earlier auto-merge.
+    runs-on: {group: ent-default, labels: [self-hosted]}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The default checkout under pull_request_target is the BASE ref: the script, the allow-list
+      # and CODEOWNERS come from main, never from the PR.
+      - name: Checkout base ref
+        uses: unsigned-gg/actions/vendor/actions-checkout@fd981ada61381db6416ba67b2bbd2d779823d0b5 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dependabot metadata
+        id: meta
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: unsigned-gg/actions/vendor/dependabot-fetch-metadata@fd981ada61381db6416ba67b2bbd2d779823d0b5 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+
+      # The enterprise ARC runner image has no gh. Pinned, checksum-verified install.
+      - name: Install gh (pinned, checksum-verified)
+        env:
+          GH_CLI_VERSION: "2.101.0"
+          GH_CLI_SHA256: "9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8"
+        run: |
+          set -euo pipefail
+          tgz="gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "/tmp/$tgz" "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/$tgz"
+          echo "${GH_CLI_SHA256}  /tmp/$tgz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "/tmp/$tgz" -C /tmp
+          install -m 0755 "/tmp/gh_${GH_CLI_VERSION}_linux_amd64/bin/gh" "$HOME/.local/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Mint release App token
+        id: app-token
+        uses: unsigned-gg/actions/vendor/actions-create-github-app-token@fd981ada61381db6416ba67b2bbd2d779823d0b5 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - name: Decide and enable auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          DEP_UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        shell: bash
+        run: bash .github/auto-merge/decide.sh
+
+      # Fail closed: a run that errors must not leave an earlier App-enabled auto-merge armed.
+      - name: Disarm on failure
+        if: failure() && steps.app-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        shell: bash
+        run: |
+          by=$(gh pr view "$PR" -R "$REPO" --json autoMergeRequest --jq '.autoMergeRequest.enabledBy.login // empty')
+          case "$by" in
+            "$APP_SLUG"|"${APP_SLUG}[bot]"|"app/$APP_SLUG")
+              gh pr merge "$PR" -R "$REPO" --disable-auto
+              echo "::warning::run failed: disabled the auto-merge this workflow enabled earlier" ;;
+          esac

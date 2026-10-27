@@ -1,0 +1,21 @@
+# Auto-merge allow-list, read from the BASE ref by .github/auto-merge/decide.sh, never from the PR.
+# One bash pattern per line; "*" also matches "/". No inline comments.
+#
+# A non-draft PR from a branch of this repo merges on green (see decide.sh for the holds). A file
+# outside the lines below also needs the `automerge-deploy` label from someone with write access:
+# these are the paths that change what is built, published or run with secrets (Cargo.toml,
+# Dockerfiles, helm, deploy, scripts, Makefile). This list fails closed: add a line only for paths
+# that cannot change what ships without a separate release.
+docs/*
+specs/*
+tests/*
+CHANGELOG.md
+README.md
+#
+# NEVER: a PR touching any of these is never auto-merged, whatever its labels.
+# Workflows (including this machinery), CODEOWNERS and this file:
+!.github/*
+# Agent hooks and settings, and the secret-scan config and its allow file:
+!.claude/*
+!.gitleaks.toml
+!.gitleaksignore
