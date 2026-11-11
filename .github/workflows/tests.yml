@@ -1,7 +1,9 @@
 # Tap CI: every formula must install, pass its test, and pass style and a strict audit.
-# Runs on the estate's self-hosted runners (GitHub-hosted runners are not used, CER-2908). Those runners
-# have no Docker daemon (container jobs fail: no /var/run/docker.sock), so Homebrew runs directly on the
-# ephemeral runner from a git clone of Homebrew/brew at a pinned tag, never from a piped install script.
+# This repository is public (OPS-1695): pull requests run on a GitHub-hosted runner, and a push to main
+# runs on the internal ent-public-push group, which admits only main-branch workflows of this repo. The
+# internal runners have no Docker daemon (container jobs fail: no /var/run/docker.sock), so on both,
+# Homebrew runs directly on the runner from a git clone of Homebrew/brew at a pinned tag, never from a
+# piped install script.
 # It replaces the scaffold job, which pointed at an unresolvable action ref (Homebrew/actions@master),
 # ran on macOS, and ended every step in `|| true`, so it could never fail.
 #
@@ -22,7 +24,7 @@ env:
   HOMEBREW_NO_ENV_HINTS: "1"
 jobs:
   test:
-    runs-on: {group: ent-default, labels: [self-hosted]}
+    runs-on: ${{ github.event_name == 'push' && fromJSON('{"group":"ent-public-push","labels":["public-push"]}') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Homebrew from a pinned clone
